@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 /*
  * PHP Unison Fiber Framework
@@ -12,10 +13,15 @@ namespace Puff\Application;
 interface Contract
 {
     public function name(): string;
+
     public function boot(Application $app): void;
-    /** @return array<string, mixed> */
+
+    /** @return array{name: string, addr?: string, url?: string, workers?: int, ...<string, mixed>} */
     public function info(): array;
+
     public function stop(): void;
+
     public function start(): void;
+
     public function workers(): int;
 }

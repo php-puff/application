@@ -12,6 +12,7 @@ use Puff\Application\Application;
 use Puff\Di\Container;
 
 if (!\function_exists('app')) {
+    /** @param array<string|int, mixed> $parameters */
     function app(?string $abstract = null, array $parameters = [], bool $events = true): mixed
     {
         $container = Container::getInstance();
@@ -25,6 +26,7 @@ if (!\function_exists('app')) {
 }
 
 if (!\function_exists('make')) {
+    /** @param array<string|int, mixed> $parameters */
     function make(string $abstract, array $parameters = [], bool $events = true): mixed
     {
         return app($abstract, $parameters, $events);

@@ -19,30 +19,47 @@ final class Application
 {
     /** @var array<string, Contract> */
     private array $apps = [];
+
+    /** @var list<ServiceProvider> */
+    private array $providers = [];
+
     private readonly Container $container;
 
-    public function __construct(?Container $container = null)
+    /**
+     * @param null|list<class-string> $apps
+     * @param null|list<class-string> $providers
+     */
+    public function __construct(?Container $container = null, ?array $apps = null, ?array $providers = null)
     {
+        $previousContainer = Container::getInstance();
+        $exceptionWasRegistered = Exception::registered();
         Exception::register();
-        $this->container = $container ?? Container::getInstance() ?? new Container();
-        $this->container->instance(self::class, $this);
-        $this->container->instance('application', $this);
-        Container::setInstance($this->container);
 
-        foreach (Discovery::apps() as $app) {
-            $this->mount($app);
-        }
+        try {
+            $this->container = $container ?? $previousContainer ?? new Container();
+            $this->container->instance(self::class, $this);
+            $this->container->instance('application', $this);
+            Container::setInstance($this->container);
 
-        Runtime::onCleanup(
-            function (): void {
-                $this->container->clearScope();
-            },
-            'puff.application.scope.' . \spl_object_id($this),
-        );
+            $this->services($providers ?? Discovery::providers());
+            foreach ($apps ?? Discovery::apps() as $app) {
+                $this->mount($app);
+            }
+            foreach ($this->apps as $app) {
+                $app->boot($this);
+            }
 
-        $this->services();
-        foreach ($this->apps as $app) {
-            $app->boot($this);
+            $scopeContainer = $this->container;
+            Runtime::onCleanup(static function () use ($scopeContainer): void {
+                $scopeContainer->clearScope();
+            }, 'puff.application.scope');
+            $this->registerException();
+        } catch (\Throwable $exception) {
+            Container::setInstance($previousContainer);
+            if (!$exceptionWasRegistered) {
+                Exception::restore();
+            }
+            throw $exception;
         }
     }
 
@@ -54,10 +71,15 @@ final class Application
 
     public function run(): void
     {
-        (new Process())->run(
-            $this->apps,
-            fn (array $pids) => $this->runtime($pids),
-        );
+        try {
+            (new Process())->run(
+                $this->apps,
+                fn (Contract $app) => $this->bootWorker($app),
+                fn (array $pids, array $info) => $this->runtime($pids, $info),
+            );
+        } finally {
+            $this->stop();
+        }
     }
 
     public function stop(): void
@@ -74,7 +96,14 @@ final class Application
         if (!$app instanceof Contract) {
             throw new \InvalidArgumentException("Application [{$class}] must implement " . Contract::class . '.');
         }
-        $this->apps[$app->name()] = $app;
+        $name = \trim($app->name());
+        if ($name === '') {
+            throw new \InvalidArgumentException("Application [{$class}] must have a non-empty name.");
+        }
+        if (isset($this->apps[$name])) {
+            throw new \InvalidArgumentException("Application name [{$name}] is already registered.");
+        }
+        $this->apps[$name] = $app;
         $this->container->instance($class, $app);
     }
 
@@ -85,42 +114,51 @@ final class Application
             throw new \InvalidArgumentException("Provider [{$provider}] must extend " . ServiceProvider::class . '.');
         }
         $service->register();
+        $this->providers[] = $service;
         if ($service->isDeferred()) {
             $abstract = $this->container->lastBinding();
             if ($abstract === null) {
                 return;
             }
+            $booted = false;
             foreach ($service->getBootingCallbacks() as $callback) {
                 $this->container->beforeResolving($abstract, $callback);
             }
             if (\method_exists($service, 'boot')) {
-                $this->container->resolving($abstract, fn () => $this->container->call([$service, 'boot']));
+                $this->container->resolving($abstract, function () use ($service, &$booted): void {
+                    if ($booted) {
+                        return;
+                    }
+                    $booted = true;
+                    $this->container->call([$service, 'boot']);
+                });
             }
             foreach ($service->getBootedCallbacks() as $callback) {
                 $this->container->afterResolving($abstract, $callback);
             }
             return;
         }
-        $service->callBootingCallbacks();
-        if (\method_exists($service, 'boot')) {
-            $this->container->call([$service, 'boot']);
-        }
-        $service->callBootedCallbacks();
+        $this->bootProvider($service);
     }
 
-    private function services(): void
+    /** @param list<class-string> $providers */
+    private function services(array $providers): void
     {
-        foreach (Discovery::providers() as $provider) {
+        foreach ($providers as $provider) {
             $this->register($provider);
         }
     }
 
     public function version(): string
     {
-        return \Composer\InstalledVersions::getPrettyVersion('puff/application');
+        return Discovery::version('puff/application') ?? 'dev-main';
     }
 
-    private function runtime(array $workerPids = []): void
+    /**
+     * @param array<string, list<int>>                                                                           $workerPids
+     * @param array<string, array{name: string, addr?: string, url?: string, workers?: int, ...<string, mixed>}> $workerInfo
+     */
+    private function runtime(array $workerPids = [], array $workerInfo = []): void
     {
         if (!\defined('STDOUT')) {
             return;
@@ -128,21 +166,63 @@ final class Application
         $info = [
             'php' => PHP_VERSION,
             'pid' => \getmypid(),
-            'apps' => \array_map(static fn (Contract $app): array => $app->info(), $this->apps),
+            'apps' => $workerInfo !== []
+                ? \array_values($workerInfo)
+                : \array_map(static fn (Contract $app): array => $app->info(), $this->apps),
         ];
         $lines = [''];
         $lines[] = \sprintf('Puff · PHP Unison Fiber Framework (PHP-%s · Master %s)', $info['php'], $info['pid']);
         $lines[] = \str_repeat('─', 78);
         foreach ($info['apps'] as $app) {
-            $name = (string) ($app['name'] ?? 'app');
+            $name = $app['name'];
             $appPids = $workerPids[$name] ?? [(int) $info['pid']];
             $pids = \implode(', ', $appPids);
-            $lines[] = \sprintf('%s · %s', $name, (string) ($app['url'] ?? $app['addr']));
+            $address = (string) ($app['url'] ?? $app['addr'] ?? 'ready');
+            $lines[] = \sprintf('%s · %s', $name, $address);
             $lines[] = \sprintf('Workers · %s', $pids);
             $lines[] = \str_repeat('─', 78);
         }
         $lines[] = '';
         \fwrite(STDOUT, \implode(PHP_EOL, $lines));
+    }
+
+    private function bootWorker(Contract $app): void
+    {
+        foreach ($this->providers as $provider) {
+            if ($provider->isDeferred()) {
+                continue;
+            }
+            $this->bootProvider($provider);
+        }
+        $app->boot($this);
+        $this->registerException();
+    }
+
+    private function bootProvider(ServiceProvider $provider): void
+    {
+        $provider->callBootingCallbacks();
+        if (\method_exists($provider, 'boot')) {
+            $this->container->call([$provider, 'boot']);
+        }
+        $provider->callBootedCallbacks();
+    }
+
+    private function registerException(): void
+    {
+        foreach (['Psr\\Log\\LoggerInterface', 'log'] as $service) {
+            if (!$this->container->bound($service)) {
+                continue;
+            }
+            $logger = $this->container->make($service);
+            if (!\is_object($logger) || !\method_exists($logger, 'error')) {
+                continue;
+            }
+            Exception::register(static fn (\Throwable $exception) => $logger->error(
+                $exception->getMessage(),
+                ['exception' => $exception],
+            ));
+            return;
+        }
     }
 
 }

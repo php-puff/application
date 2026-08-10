@@ -12,15 +12,16 @@
     ],
     "license": "MIT",
     "require": {
-        "composer-runtime-api": "^2.2",
         "php": "^8.2",
-        "ext-pcntl": "*",
-        "ext-posix": "*",
         "puff/async": "dev-main",
         "puff/di": "dev-main"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.0"
+    },
+    "suggest": {
+        "ext-pcntl": "Required to run process workers",
+        "ext-posix": "Required to signal process workers"
     },
     "autoload": {
         "files": [

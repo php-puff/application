@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 /*
  * PHP Unison Fiber Framework
@@ -10,7 +11,7 @@ declare(strict_types=1);
 namespace Puff\Application;
 
 final class Discovery
-{    
+{
     /** @var list<class-string>|null */
     private static ?array $apps = null;
 
@@ -27,8 +28,10 @@ final class Discovery
         $apps = [];
         foreach (self::packages() as $package) {
             foreach ((array) ($package['extra']['puff']['apps'] ?? []) as $app) {
-                if (\is_string($app) && $app !== '') {
+                if (\is_string($app) && $app !== '' && \class_exists($app)) {
                     $apps[] = $app;
+                } elseif (\is_string($app) && $app !== '') {
+                    throw new \UnexpectedValueException("Discovered Puff application [{$app}] does not exist.");
                 }
             }
         }
@@ -45,17 +48,38 @@ final class Discovery
         $providers = [];
         foreach (self::packages() as $package) {
             foreach ((array) ($package['extra']['puff']['providers'] ?? []) as $provider) {
-                if (\is_string($provider) && $provider !== '') {
+                if (\is_string($provider) && $provider !== '' && \class_exists($provider)) {
                     $providers[] = $provider;
+                } elseif (\is_string($provider) && $provider !== '') {
+                    throw new \UnexpectedValueException("Discovered Puff provider [{$provider}] does not exist.");
                 }
             }
         }
         return self::$providers = \array_values(\array_unique($providers));
     }
 
+    public static function reset(): void
+    {
+        self::$apps = null;
+        self::$providers = null;
+    }
+
+    public static function version(string $package): ?string
+    {
+        foreach (self::packages() as $item) {
+            if (($item['name'] ?? null) !== $package) {
+                continue;
+            }
+            $version = $item['pretty_version'] ?? $item['version'] ?? null;
+            return \is_string($version) ? $version : null;
+        }
+        return null;
+    }
+
+    /** @return list<array<string, mixed>> */
     private static function packages(): array
     {
-        $reflection = new \ReflectionClass(\Composer\InstalledVersions::class);
+        $reflection = new \ReflectionClass(\Composer\Autoload\ClassLoader::class);
         $composerDirectory = \dirname((string) $reflection->getFileName());
         $packages = self::read($composerDirectory . '/installed.json');
         $root = self::read(\dirname($composerDirectory, 2) . '/composer.json');
@@ -65,9 +89,10 @@ final class Discovery
         if (isset($root['name'])) {
             $packages[] = $root;
         }
-        return $packages;
+        return \array_values(\array_filter($packages, \is_array(...)));
     }
 
+    /** @return array<string, mixed> */
     private static function read(string $file): array
     {
         if (!is_file($file)) {
@@ -77,6 +102,7 @@ final class Discovery
         if ($contents === false) {
             return [];
         }
-        return json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+        $decoded = \json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+        return \is_array($decoded) ? $decoded : [];
     }
 }

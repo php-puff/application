@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 /*
  * PHP Unison Fiber Framework
@@ -29,6 +30,9 @@ final class Exception
     public static function register(?callable $logger = null): self
     {
         if (self::$active !== null) {
+            if ($logger !== null) {
+                self::$active->logger = $logger;
+            }
             return self::$active;
         }
 
@@ -40,6 +44,11 @@ final class Exception
             self::$shutdownRegistered = true;
         }
         return self::$active = $handler;
+    }
+
+    public static function registered(): bool
+    {
+        return self::$active !== null;
     }
 
     public static function restore(): void
