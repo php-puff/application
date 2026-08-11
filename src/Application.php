@@ -1,12 +1,13 @@
 <?php
 
-declare(strict_types=1);
 /*
- * PHP Unison Fiber Framework
+ * PHP Fiber Framework
  * https://github.com/php-puff/application
  * https://github.com/php-puff/application/issues
  * Copyright (c) Puff
  */
+
+declare(strict_types=1);
 
 namespace Puff\Application;
 
@@ -67,7 +68,6 @@ final class Application
     {
         return $this->container;
     }
-
 
     public function run(): void
     {
