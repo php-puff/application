@@ -20,4 +20,4 @@ Unexpected worker exits use bounded exponential backoff. A worker that repeatedl
 
 The master process requires the `pcntl` and `posix` extensions at runtime. They are Composer suggestions rather than installation requirements, allowing the package to be used for protocol-independent testing on platforms without process control.
 
-Application names must be non-empty and unique. `info()` must return the same `name` and either an `url` or `addr` value so readiness and startup output remain deterministic.
+Application names must be non-empty and unique. `info()` must return the same `name` and a non-empty `addr` value so readiness and startup output remain deterministic.

@@ -156,7 +156,7 @@ final class Application
 
     /**
      * @param array<string, list<int>>                                                                           $workerPids
-     * @param array<string, array{name: string, addr?: string, url?: string, workers?: int, ...<string, mixed>}> $workerInfo
+     * @param array<string, array{name: string, addr: string, workers?: int, ...<string, mixed>}> $workerInfo
      */
     private function runtime(array $workerPids = [], array $workerInfo = []): void
     {
@@ -174,13 +174,23 @@ final class Application
         $lines[] = \sprintf('Puff · PHP Unison Fiber Framework (PHP-%s · Master %s)', $info['php'], $info['pid']);
         $lines[] = \str_repeat('─', 78);
         foreach ($info['apps'] as $app) {
-            $name = $app['name'];
-            $appPids = $workerPids[$name] ?? [(int) $info['pid']];
+            $appName = $app['name'];
+            $appPids = $workerPids[$appName] ?? [(int) $info['pid']];
             $pids = \implode(', ', $appPids);
-            $address = (string) ($app['url'] ?? $app['addr'] ?? 'ready');
-            $lines[] = \sprintf('%s · %s', $name, $address);
-            $lines[] = \sprintf('Workers · %s', $pids);
-            $lines[] = \str_repeat('─', 78);
+            $groups = \is_array($app['groups'] ?? null) ? $app['groups'] : [];
+            if ($groups === []) {
+                $groups[] = ['name' => $appName, 'addr' => $app['addr']];
+            }
+            foreach ($groups as $group) {
+                if (!\is_array($group)) {
+                    continue;
+                }
+                $name = \strtoupper((string) ($group['type'] ?? $group['name'] ?? $appName));
+                $address = (string) ($group['addr'] ?? 'ready');
+                $lines[] = \sprintf('%s · %s', $name, $address);
+                $lines[] = \sprintf('Workers · %s', $pids);
+                $lines[] = \str_repeat('─', 78);
+            }
         }
         $lines[] = '';
         \fwrite(STDOUT, \implode(PHP_EOL, $lines));

@@ -16,7 +16,7 @@ interface Contract
 
     public function boot(Application $app): void;
 
-    /** @return array{name: string, addr?: string, url?: string, workers?: int, ...<string, mixed>} */
+    /** @return array{name: string, addr: string, workers?: int, ...<string, mixed>} */
     public function info(): array;
 
     public function stop(): void;

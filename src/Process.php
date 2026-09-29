@@ -26,7 +26,7 @@ final class Process
     /** @var array<int, array{app: Contract, at: float, failures: int}> */
     private array $pending = [];
 
-    /** @var array<string, array{name: string, addr?: string, url?: string, workers?: int, ...<string, mixed>}> */
+    /** @var array<string, array{name: string, addr: string, workers?: int, ...<string, mixed>}> */
     private array $workerInfo = [];
 
     private bool $stopping = false;
@@ -34,7 +34,7 @@ final class Process
     /**
      * @param array<string, Contract>                                                                                                                      $apps
      * @param callable(Contract): void                                                                                                                     $initializer
-     * @param callable(array<string, list<int>>, array<string, array{name: string, addr?: string, url?: string, workers?: int, ...<string, mixed>}>): void $started
+     * @param callable(array<string, list<int>>, array<string, array{name: string, addr: string, workers?: int, ...<string, mixed>}>): void $started
      */
     public function run(array $apps, callable $initializer, callable $started): void
     {
@@ -230,7 +230,7 @@ final class Process
 
     /**
      * @param  resource                                                                            $socket
-     * @return array{name: string, addr?: string, url?: string, workers?: int, ...<string, mixed>}
+     * @return array{name: string, addr: string, workers?: int, ...<string, mixed>}
      */
     private function awaitReady(int $pid, Contract $app, mixed $socket): array
     {
@@ -266,7 +266,7 @@ final class Process
             if (!\is_array($info)) {
                 throw new \RuntimeException("Application [{$app->name()}] returned invalid worker information.");
             }
-            /** @var array{name: string, addr?: string, url?: string, workers?: int, ...<string, mixed>} $info */
+            /** @var array{name: string, addr: string, workers?: int, ...<string, mixed>} $info */
             return $info;
         }
         throw new \RuntimeException("Application [{$app->name()}] worker {$pid} did not become ready within 10 seconds.");
@@ -278,8 +278,8 @@ final class Process
         if (($info['name'] ?? null) !== $app->name()) {
             throw new \UnexpectedValueException("Application [{$app->name()}] info must contain its name.");
         }
-        if (!isset($info['url']) && !isset($info['addr'])) {
-            throw new \UnexpectedValueException("Application [{$app->name()}] info must contain url or addr.");
+        if (!isset($info['addr']) || !\is_string($info['addr']) || $info['addr'] === '') {
+            throw new \UnexpectedValueException("Application [{$app->name()}] info must contain a non-empty addr.");
         }
     }
 
